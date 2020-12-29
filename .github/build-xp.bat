@@ -7,4 +7,4 @@ msbuild -p:Configuration=Release ALL_BUILD.vcxproj
 
 cd Release
 7z a -t7z -m0=lzma -mx=9 -mfb=64 -md=32m -ms=on -sse LaFlor.7z LaFlor.exe
-powershell -Command "Get-FileHash LaFlor.7z | Format-List"
+certutil -hashfile LaFlor.7z SHA256

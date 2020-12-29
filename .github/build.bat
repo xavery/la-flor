@@ -6,4 +6,4 @@ cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
 ninja
 
 7z a -t7z -m0=lzma -mx=9 -mfb=64 -md=32m -ms=on -sse LaFlor.7z LaFlor.exe
-powershell -Command "Get-FileHash LaFlor.7z | Format-List"
+certutil -hashfile LaFlor.7z SHA256
