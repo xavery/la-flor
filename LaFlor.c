@@ -13,8 +13,8 @@
 /* define for the custom message that's sent when some user input is directed at
  * our application's notification icon. since the message identifier namespace
  * is shared with standard Windows messages, this cannot just be any number :
- * application-specific private messages should use the range from (WM_APP to
- * 0xBFFF). */
+ * application-specific private messages should use the range from WM_APP to
+ * 0xBFFF. */
 #define NOTIFYICON_ID WM_APP
 
 /* command identifiers for menu items. the IDM_ prefix is customary, since the
