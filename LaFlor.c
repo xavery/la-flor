@@ -9,6 +9,7 @@
 #include <shlwapi.h>
 
 #include <assert.h>
+#include <stdbool.h>
 
 /* define for the custom message that's sent when some user input is directed at
  * our application's notification icon. since the message identifier namespace
@@ -23,20 +24,22 @@
 #define IDM_ENABLED 1
 #define IDM_QUIT 2
 
-/* the timer ID of the main timer that's created when a timer is associated with
- * the application's main (and only) window handle. */
-#define TIMER_EVENT_ID 1
-
 /* the "interval" and "delta" menu entires are generated dynamically based on
  * the number of entires in respective arrays : therefore, a pair of _START and
  * _END defines is created for each of these instead of a hardcoded set. */
 #define IDM_INTERVAL_START 3
 static const int intervals[] = {1000, 5000, 10000, 30000, 60000};
 #define IDM_INTERVAL_END (IDM_INTERVAL_START + ARRAYSIZE(intervals))
+#define IDM_INTERVAL_CUSTOM IDM_INTERVAL_END
 
-#define IDM_DELTA_START IDM_INTERVAL_END
+#define IDM_DELTA_START (IDM_INTERVAL_CUSTOM + 1)
 static const int deltas[] = {1, 5, 10, 30, 60};
 #define IDM_DELTA_END (IDM_DELTA_START + ARRAYSIZE(deltas))
+#define IDM_DELTA_CUSTOM IDM_DELTA_END
+
+/* the timer ID of the main timer that's created when a timer is associated with
+ * the application's main (and only) window handle. */
+#define TIMER_EVENT_ID 1
 
 /* the main application state struct that's associated with the given window
  * handle. */
@@ -44,11 +47,11 @@ struct AppState {
   HINSTANCE app;
   HWND wnd;
   UINT_PTR timerId;
-  int active;
   int intervalIdx;
   int deltaIdx;
   int currentDeltaX;
   int currentDeltaY;
+  bool active;
 };
 
 static HICON getNotificationIcon(HINSTANCE app, int active) {
@@ -119,7 +122,7 @@ static void setNewDelta(struct AppState *state, int idx) {
   getNewDeltas(state);
 }
 
-static void setTimerEnabled(struct AppState *state, int enabled) {
+static void setTimerEnabled(struct AppState *state, bool enabled) {
   /* enable or disable the timer, according to the value of the "enabled"
    * parameter. TimerProc is not used here, which means that the timer ticks
    * will be sent to the main message loop as WM_TIMER messages and reach the
@@ -164,17 +167,25 @@ static void moveMouse(struct AppState *state) {
   SendInput(1, &inp, sizeof(inp));
 }
 
+static void commonAppendMenuItem(HMENU menu, bool grayFlag, bool checkedFlag,
+                                 UINT_PTR menuItemId, const wchar_t *label) {
+  const int flags = MF_STRING | (grayFlag ? MF_GRAYED : 0) |
+                    (checkedFlag ? MF_CHECKED : MF_UNCHECKED);
+  AppendMenuW(menu, flags, menuItemId, label);
+}
+
 static HMENU commonCreateMenu(const int *vals, int numVals, int grayFlag,
                               int currentSelected, int idmStart,
                               void (*formatFn)(wchar_t *, int, int)) {
   HMENU rv = CreatePopupMenu();
   for (int i = 0; i < numVals; ++i) {
     wchar_t buf[256];
-    int flags = MF_STRING | grayFlag |
-                (currentSelected == i ? MF_CHECKED : MF_UNCHECKED);
     formatFn(buf, ARRAYSIZE(buf), vals[i]);
-    AppendMenuW(rv, flags, (UINT_PTR)idmStart + i, buf);
+    commonAppendMenuItem(rv, grayFlag, currentSelected == i,
+                         (UINT_PTR)idmStart + i, buf);
   }
+  commonAppendMenuItem(rv, grayFlag, currentSelected == numVals,
+                       (UINT_PTR)idmStart + numVals, L"Custom...");
   return rv;
 }
 
@@ -219,6 +230,10 @@ static HMENU createMenu(const struct AppState *state) {
   return rv;
 }
 
+static void showCustomIntervalDialog(void) {}
+
+static void showCustomDeltaDialog(void) {}
+
 static void toggleEnabled(struct AppState *state) {
   state->active ^= 1;
   setTimerEnabled(state, state->active);
@@ -248,8 +263,14 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
     toggleEnabled(state);
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
     setNewInterval(state, (itemId - IDM_INTERVAL_START));
+  } else if (itemId == IDM_INTERVAL_CUSTOM) {
+    state->intervalIdx = ARRAYSIZE(intervals);
+    showCustomIntervalDialog();
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
     setNewDelta(state, (itemId - IDM_DELTA_START));
+  } else if (itemId == IDM_DELTA_CUSTOM) {
+    state->deltaIdx = ARRAYSIZE(deltas);
+    showCustomDeltaDialog();
   }
 }
 
