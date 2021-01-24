@@ -28,13 +28,13 @@
  * the number of entires in respective arrays : therefore, a pair of _START and
  * _END defines is created for each of these instead of a hardcoded set. */
 #define IDM_INTERVAL_START 3
-static const int intervals[] = {1000, 5000, 10000, 30000, 60000};
-#define IDM_INTERVAL_END (IDM_INTERVAL_START + ARRAYSIZE(intervals))
+static const int predefIntervals[] = {1000, 5000, 10000, 30000, 60000};
+#define IDM_INTERVAL_END (IDM_INTERVAL_START + ARRAYSIZE(predefIntervals))
 #define IDM_INTERVAL_CUSTOM IDM_INTERVAL_END
 
 #define IDM_DELTA_START (IDM_INTERVAL_CUSTOM + 1)
-static const int deltas[] = {1, 5, 10, 30, 60};
-#define IDM_DELTA_END (IDM_DELTA_START + ARRAYSIZE(deltas))
+static const int predefDeltas[] = {1, 5, 10, 30, 60};
+#define IDM_DELTA_END (IDM_DELTA_START + ARRAYSIZE(predefDeltas))
 #define IDM_DELTA_CUSTOM IDM_DELTA_END
 
 /* the timer ID of the main timer that's created when a timer is associated with
@@ -90,7 +90,7 @@ static void changeNotificationIcon(HINSTANCE app, HWND wnd, int active) {
 
 static void getNewDelta(struct AppState *state, int newval, int maxval,
                         int *delta) {
-  const int wantedDelta = deltas[state->deltaIdx];
+  const int wantedDelta = predefDeltas[state->deltaIdx];
   if (newval >= maxval) {
     *delta = (-1 * wantedDelta);
   } else if (newval <= 0) {
@@ -113,7 +113,7 @@ static void getNewDeltas(struct AppState *state) {
 
 static void setNewDelta(struct AppState *state, int idx) {
   state->deltaIdx = idx;
-  const int wantedDelta = deltas[idx];
+  const int wantedDelta = predefDeltas[idx];
   if (state->currentDeltaX < 0) {
     state->currentDeltaX = state->currentDeltaY = (-1 * wantedDelta);
   } else {
@@ -131,8 +131,8 @@ static void setTimerEnabled(struct AppState *state, bool enabled) {
   setNewDelta(state, state->deltaIdx);
   if (enabled) {
     assert(state->timerId == 0);
-    state->timerId =
-        SetTimer(state->wnd, TIMER_EVENT_ID, intervals[state->intervalIdx], 0);
+    state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID,
+                              predefIntervals[state->intervalIdx], 0);
   } else {
     assert(state->timerId);
     KillTimer(state->wnd, TIMER_EVENT_ID);
@@ -142,8 +142,8 @@ static void setTimerEnabled(struct AppState *state, bool enabled) {
 
 static void restartTimer(struct AppState *state) {
   assert(state->timerId);
-  state->timerId =
-      SetTimer(state->wnd, TIMER_EVENT_ID, intervals[state->intervalIdx], 0);
+  state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID,
+                            predefIntervals[state->intervalIdx], 0);
 }
 
 static void setNewInterval(struct AppState *state, int idx) {
@@ -194,7 +194,7 @@ static void intervalFormat(wchar_t *buf, int bufLen, int value) {
 }
 
 static HMENU createIntervalsMenu(const struct AppState *state, int grayFlag) {
-  return commonCreateMenu(intervals, ARRAYSIZE(intervals), grayFlag,
+  return commonCreateMenu(predefIntervals, ARRAYSIZE(predefIntervals), grayFlag,
                           state->intervalIdx, IDM_INTERVAL_START,
                           intervalFormat);
 }
@@ -204,8 +204,8 @@ static void deltaFormat(wchar_t *buf, int bufLen, int value) {
 }
 
 static HMENU createDeltasMenu(const struct AppState *state, int grayFlag) {
-  return commonCreateMenu(deltas, ARRAYSIZE(deltas), grayFlag, state->deltaIdx,
-                          IDM_DELTA_START, deltaFormat);
+  return commonCreateMenu(predefDeltas, ARRAYSIZE(predefDeltas), grayFlag,
+                          state->deltaIdx, IDM_DELTA_START, deltaFormat);
 }
 
 static HMENU createMenu(const struct AppState *state) {
@@ -264,12 +264,12 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
     setNewInterval(state, (itemId - IDM_INTERVAL_START));
   } else if (itemId == IDM_INTERVAL_CUSTOM) {
-    state->intervalIdx = ARRAYSIZE(intervals);
+    state->intervalIdx = ARRAYSIZE(predefIntervals);
     showCustomIntervalDialog();
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
     setNewDelta(state, (itemId - IDM_DELTA_START));
   } else if (itemId == IDM_DELTA_CUSTOM) {
-    state->deltaIdx = ARRAYSIZE(deltas);
+    state->deltaIdx = ARRAYSIZE(predefDeltas);
     showCustomDeltaDialog();
   }
 }
