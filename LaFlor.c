@@ -32,10 +32,24 @@ static const int predefIntervals[] = {1000, 5000, 10000, 30000, 60000};
 #define IDM_INTERVAL_END (IDM_INTERVAL_START + ARRAYSIZE(predefIntervals))
 #define IDM_INTERVAL_CUSTOM IDM_INTERVAL_END
 
+#define SEEK_PREDEF_MACRO(arr, val)                                            \
+  for (int i__ = 0; i__ < ARRAYSIZE(arr); ++i__) {                             \
+    if (arr[i__] == val) {                                                     \
+      return i__;                                                              \
+    }                                                                          \
+  }                                                                            \
+  return -1
+
+static int seekPredefInterval(int val) {
+  SEEK_PREDEF_MACRO(predefIntervals, val);
+}
+
 #define IDM_DELTA_START (IDM_INTERVAL_CUSTOM + 1)
 static const int predefDeltas[] = {1, 5, 10, 30, 60};
 #define IDM_DELTA_END (IDM_DELTA_START + ARRAYSIZE(predefDeltas))
 #define IDM_DELTA_CUSTOM IDM_DELTA_END
+
+static int seekPredefDelta(int val) { SEEK_PREDEF_MACRO(predefDeltas, val); }
 
 /* the timer ID of the main timer that's created when a timer is associated with
  * the application's main (and only) window handle. */
@@ -47,8 +61,8 @@ struct AppState {
   HINSTANCE app;
   HWND wnd;
   UINT_PTR timerId;
-  int intervalIdx;
-  int deltaIdx;
+  int interval;
+  int delta;
   int currentDeltaX;
   int currentDeltaY;
   bool active;
@@ -90,7 +104,7 @@ static void changeNotificationIcon(HINSTANCE app, HWND wnd, int active) {
 
 static void getNewDelta(struct AppState *state, int newval, int maxval,
                         int *delta) {
-  const int wantedDelta = predefDeltas[state->deltaIdx];
+  const int wantedDelta = state->delta;
   if (newval >= maxval) {
     *delta = (-1 * wantedDelta);
   } else if (newval <= 0) {
@@ -111,9 +125,8 @@ static void getNewDeltas(struct AppState *state) {
   getNewDelta(state, newy, height, &state->currentDeltaY);
 }
 
-static void setNewDelta(struct AppState *state, int idx) {
-  state->deltaIdx = idx;
-  const int wantedDelta = predefDeltas[idx];
+static void setNewDelta(struct AppState *state, int wantedDelta) {
+  state->delta = wantedDelta;
   if (state->currentDeltaX < 0) {
     state->currentDeltaX = state->currentDeltaY = (-1 * wantedDelta);
   } else {
@@ -128,11 +141,10 @@ static void setTimerEnabled(struct AppState *state, bool enabled) {
    * will be sent to the main message loop as WM_TIMER messages and reach the
    * window function, where the state struct pointer can be accessed via the
    * associated window handle. */
-  setNewDelta(state, state->deltaIdx);
+  setNewDelta(state, state->delta);
   if (enabled) {
     assert(state->timerId == 0);
-    state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID,
-                              predefIntervals[state->intervalIdx], 0);
+    state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID, state->interval, 0);
   } else {
     assert(state->timerId);
     KillTimer(state->wnd, TIMER_EVENT_ID);
@@ -142,12 +154,11 @@ static void setTimerEnabled(struct AppState *state, bool enabled) {
 
 static void restartTimer(struct AppState *state) {
   assert(state->timerId);
-  state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID,
-                            predefIntervals[state->intervalIdx], 0);
+  state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID, state->interval, 0);
 }
 
-static void setNewInterval(struct AppState *state, int idx) {
-  state->intervalIdx = idx;
+static void setNewInterval(struct AppState *state, int interval) {
+  state->interval = interval;
   if (state->timerId) {
     restartTimer(state);
   }
@@ -184,7 +195,7 @@ static HMENU commonCreateMenu(const int *vals, int numVals, int grayFlag,
     commonAppendMenuItem(rv, grayFlag, currentSelected == i,
                          (UINT_PTR)idmStart + i, buf);
   }
-  commonAppendMenuItem(rv, grayFlag, currentSelected == numVals,
+  commonAppendMenuItem(rv, grayFlag, currentSelected == -1,
                        (UINT_PTR)idmStart + numVals, L"Custom...");
   return rv;
 }
@@ -194,8 +205,9 @@ static void intervalFormat(wchar_t *buf, int bufLen, int value) {
 }
 
 static HMENU createIntervalsMenu(const struct AppState *state, int grayFlag) {
+  int selectedIntervalIdx = seekPredefInterval(state->interval);
   return commonCreateMenu(predefIntervals, ARRAYSIZE(predefIntervals), grayFlag,
-                          state->intervalIdx, IDM_INTERVAL_START,
+                          selectedIntervalIdx, IDM_INTERVAL_START,
                           intervalFormat);
 }
 
@@ -204,8 +216,9 @@ static void deltaFormat(wchar_t *buf, int bufLen, int value) {
 }
 
 static HMENU createDeltasMenu(const struct AppState *state, int grayFlag) {
+  int selectedDeltaIdx = seekPredefDelta(state->delta);
   return commonCreateMenu(predefDeltas, ARRAYSIZE(predefDeltas), grayFlag,
-                          state->deltaIdx, IDM_DELTA_START, deltaFormat);
+                          selectedDeltaIdx, IDM_DELTA_START, deltaFormat);
 }
 
 static HMENU createMenu(const struct AppState *state) {
@@ -230,9 +243,9 @@ static HMENU createMenu(const struct AppState *state) {
   return rv;
 }
 
-static void showCustomIntervalDialog(void) {}
+static int getCustomInterval(void) { return 2222; }
 
-static void showCustomDeltaDialog(void) {}
+static int getCustomDelta(void) { return 26; }
 
 static void toggleEnabled(struct AppState *state) {
   state->active ^= 1;
@@ -262,15 +275,19 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
   } else if (itemId == IDM_ENABLED) {
     toggleEnabled(state);
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
-    setNewInterval(state, (itemId - IDM_INTERVAL_START));
+    setNewInterval(state, predefIntervals[itemId - IDM_INTERVAL_START]);
   } else if (itemId == IDM_INTERVAL_CUSTOM) {
-    state->intervalIdx = ARRAYSIZE(predefIntervals);
-    showCustomIntervalDialog();
+    int interval = getCustomInterval();
+    if (interval != -1) {
+      setNewInterval(state, interval);
+    }
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
-    setNewDelta(state, (itemId - IDM_DELTA_START));
+    setNewDelta(state, predefDeltas[itemId - IDM_DELTA_START]);
   } else if (itemId == IDM_DELTA_CUSTOM) {
-    state->deltaIdx = ARRAYSIZE(predefDeltas);
-    showCustomDeltaDialog();
+    int delta = getCustomDelta();
+    if (delta != -1) {
+      setNewDelta(state, delta);
+    }
   }
 }
 
@@ -391,6 +408,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
   struct AppState state;
   memset(&state, 0, sizeof(state));
   state.app = hInstance;
+  state.interval = predefIntervals[0];
+  state.delta = predefDeltas[0];
 
   int rv = 1;
   WNDCLASSEXW wndClass;
@@ -430,7 +449,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
    *
    * while (GetMessage( lpMsg, hWnd, 0, 0))
    *
-   * is slightly wrong.*/
+   * is slightly wrong though has no real consequences as it works out to the
+   * exact same thing. */
   while ((getMsgRv = GetMessageW(&msg, 0, 0, 0)) != 0) {
     if (getMsgRv == -1) {
       goto beach2;
