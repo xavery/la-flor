@@ -43,6 +43,7 @@ static const int deltas[] = {1, 5, 10, 30, 60};
 /* the main application state struct that's associated with the given window
  * handle. */
 struct AppState {
+  HINSTANCE app;
   HWND wnd;
   UINT_PTR timerId;
   int active;
@@ -51,6 +52,40 @@ struct AppState {
   int currentDeltaX;
   int currentDeltaY;
 };
+
+static HICON getNotificationIcon(HINSTANCE app, int active) {
+  return LoadIconW(app, active ? L"IDI_ICON1" : L"IDI_ICON1_BW");
+}
+
+static void notifyIconDataCommonInit(NOTIFYICONDATAW *out, HWND wnd) {
+  /* in order to keep compatibility with Windows XP, we use
+   * NOTIFYICONDATAW_V2_SIZE and NOTIFYICON_VERSION instead of the newer values
+   * (_V3_SIZE and _VERSION_4 respectively) available since Vista. in the older
+   * version, the custom message's wparam specifies the icon ID (specified as
+   * the uID member of NOTIFYICONDATA), and its lparam specifies the actual
+   * event that occurred on the notification icon.
+   *
+   * the newer version is admittedly a bit easier to use, as it encodes the
+   * actual event and the icon ID in the lparam, and X/Y coordinates of the
+   * related event in the wparam. this means that it's not necessary to call
+   * GetCursorPos() when processing the event, whose return value might be
+   * different to the location where the event actually occurred.
+   */
+  memset(out, 0, sizeof(*out));
+  out->cbSize = NOTIFYICONDATAW_V2_SIZE;
+  out->uVersion = NOTIFYICON_VERSION;
+  out->hWnd = wnd;
+  out->uID = NOTIFYICON_ID;
+}
+
+static void changeNotificationIcon(HINSTANCE app, HWND wnd, int active) {
+  NOTIFYICONDATAW data;
+  notifyIconDataCommonInit(&data, wnd);
+  data.uFlags |= NIF_ICON; /* the only thing we want to change is the icon and
+                              leave the rest untouched. */
+  data.hIcon = getNotificationIcon(app, active);
+  Shell_NotifyIconW(NIM_MODIFY, &data);
+}
 
 static void getNewDelta(struct AppState *state, int newval, int maxval,
                         int *delta) {
@@ -208,6 +243,7 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
   } else if (itemId == IDM_ENABLED) {
     state->active ^= 1;
     setTimerEnabled(state, state->active);
+    changeNotificationIcon(state->app, state->wnd, state->active);
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
     setNewInterval(state, (itemId - IDM_INTERVAL_START));
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
@@ -306,27 +342,6 @@ static LRESULT CALLBACK windowProc(HWND wnd, UINT msg, WPARAM wparam,
   return DefWindowProcW(wnd, msg, wparam, lparam);
 }
 
-static void notifyIconDataCommonInit(NOTIFYICONDATAW *out, HWND wnd) {
-  /* in order to keep compatibility with Windows XP, we use
-   * NOTIFYICONDATAW_V2_SIZE and NOTIFYICON_VERSION instead of the newer values
-   * (_V3_SIZE and _VERSION_4 respectively) available since Vista. in the older
-   * version, the custom message's wparam specifies the icon ID (specified as
-   * the uID member of NOTIFYICONDATA), and its lparam specifies the actual
-   * event that occurred on the notification icon.
-   *
-   * the newer version is admittedly a bit easier to use, as it encodes the
-   * actual event and the icon ID in the lparam, and X/Y coordinates of the
-   * related event in the wparam. this means that it's not necessary to call
-   * GetCursorPos() when processing the event, whose return value might be
-   * different to the location where the event actually occurred.
-   */
-  memset(out, 0, sizeof(*out));
-  out->cbSize = NOTIFYICONDATAW_V2_SIZE;
-  out->uVersion = NOTIFYICON_VERSION;
-  out->hWnd = wnd;
-  out->uID = NOTIFYICON_ID;
-}
-
 static int createNotificationIcon(HWND wnd, HICON icon) {
   NOTIFYICONDATAW notifyIconData;
   notifyIconDataCommonInit(&notifyIconData, wnd);
@@ -350,6 +365,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
                     _In_ PWSTR pCmdLine, _In_ int nCmdShow) {
   struct AppState state;
   memset(&state, 0, sizeof(state));
+  state.app = hInstance;
 
   int rv = 1;
   WNDCLASSEXW wndClass;
@@ -376,7 +392,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
   }
   state.wnd = wnd;
 
-  if (!createNotificationIcon(wnd, LoadIcon(hInstance, L"IDI_ICON1"))) {
+  /* the application always starts up as inactive */
+  if (!createNotificationIcon(wnd, getNotificationIcon(hInstance, 0))) {
     goto beach;
   }
 
