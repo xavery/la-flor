@@ -219,6 +219,12 @@ static HMENU createMenu(const struct AppState *state) {
   return rv;
 }
 
+static void toggleEnabled(struct AppState *state) {
+  state->active ^= 1;
+  setTimerEnabled(state, state->active);
+  changeNotificationIcon(state->app, state->wnd, state->active);
+}
+
 static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
   if (itemId == IDM_QUIT) {
     /* this seems to be the most "proper" way of asking the application to
@@ -239,9 +245,7 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
      */
     SendMessage(wnd, WM_CLOSE, 0, 0);
   } else if (itemId == IDM_ENABLED) {
-    state->active ^= 1;
-    setTimerEnabled(state, state->active);
-    changeNotificationIcon(state->app, state->wnd, state->active);
+    toggleEnabled(state);
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
     setNewInterval(state, (itemId - IDM_INTERVAL_START));
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
@@ -288,11 +292,13 @@ static LRESULT onTaskbarIconEvent(struct AppState *state, HWND wnd, UINT msg) {
      * DestroyMenu() works recursively, i.e. it destroys any submenus as well.
      */
     DestroyMenu(menu);
-    return 0;
+    break;
   }
-  default:
-    return 0;
+  case WM_LBUTTONDBLCLK:
+    toggleEnabled(state);
+    break;
   }
+  return 0;
 }
 
 static LRESULT CALLBACK windowProc(HWND wnd, UINT msg, WPARAM wparam,
