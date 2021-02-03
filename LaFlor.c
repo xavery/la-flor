@@ -68,7 +68,7 @@ struct AppState {
   bool active;
 };
 
-static HICON getNotificationIcon(HINSTANCE app, int active) {
+static HICON getNotificationIcon(HINSTANCE app, bool active) {
   return LoadIconW(app, active ? L"IDI_ICON1" : L"IDI_ICON1_BW");
 }
 
@@ -93,7 +93,7 @@ static void notifyIconDataCommonInit(NOTIFYICONDATAW *out, HWND wnd) {
   out->uID = NOTIFYICON_ID;
 }
 
-static void changeNotificationIcon(HINSTANCE app, HWND wnd, int active) {
+static void changeNotificationIcon(HINSTANCE app, HWND wnd, bool active) {
   NOTIFYICONDATAW data;
   notifyIconDataCommonInit(&data, wnd);
   data.uFlags |= NIF_ICON; /* the only thing we want to change is the icon and
@@ -405,13 +405,73 @@ static int removeNotificationIcon(HWND wnd) {
   return Shell_NotifyIconW(NIM_DELETE, &notifyIconData) == TRUE;
 }
 
+static const wchar_t LaFlorRegistryKey[] = L"SOFTWARE\\xavery\\LaFlor";
+
+static int registryReadInteger(HKEY key, const wchar_t *subkey, int *rv) {
+  unsigned int type;
+  unsigned char buf[sizeof(int)];
+  unsigned int bufsize = sizeof(buf);
+
+  const LSTATUS stat = RegQueryValueExW(key, subkey, 0, &type, buf, &bufsize);
+  if (stat == ERROR_SUCCESS && type == REG_DWORD) {
+    memcpy(rv, buf, sizeof(*rv));
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+static void stateReadFromRegistry(struct AppState *state) {
+  HKEY key;
+  const LSTATUS ok =
+      RegOpenKeyExW(HKEY_CURRENT_USER, LaFlorRegistryKey, 0, KEY_READ, &key);
+  if (ok != ERROR_SUCCESS) {
+    return;
+  }
+
+  int value;
+  if (registryReadInteger(key, L"delta", &value) == 0) {
+    setNewDelta(state, value);
+  }
+  if (registryReadInteger(key, L"interval", &value) == 0) {
+    setNewInterval(state, value);
+  }
+  if (registryReadInteger(key, L"active", &value) == 0 && value) {
+    toggleEnabled(state);
+  }
+
+  RegCloseKey(key);
+}
+
+static void stateSaveToRegistry(const struct AppState *state) {
+  HKEY key;
+  const LSTATUS ok = RegCreateKeyExW(HKEY_CURRENT_USER, LaFlorRegistryKey, 0, 0,
+                                     0, KEY_WRITE, 0, &key, 0);
+  if (ok != ERROR_SUCCESS) {
+    return;
+  }
+
+  RegSetValueExW(key, L"delta", 0, REG_DWORD, (const BYTE *)&state->delta,
+                 sizeof(state->delta));
+  RegSetValueExW(key, L"interval", 0, REG_DWORD, (const BYTE *)&state->interval,
+                 sizeof(state->interval));
+  int value = state->active;
+  RegSetValueExW(key, L"active", 0, REG_DWORD, (const BYTE *)&value,
+                 sizeof(value));
+  RegCloseKey(key);
+}
+
+static void initAppState(struct AppState *state, HINSTANCE hInstance) {
+  memset(state, 0, sizeof(*state));
+  state->app = hInstance;
+  state->interval = predefIntervals[0];
+  state->delta = predefDeltas[0];
+}
+
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
                     _In_ PWSTR pCmdLine, _In_ int nCmdShow) {
   struct AppState state;
-  memset(&state, 0, sizeof(state));
-  state.app = hInstance;
-  state.interval = predefIntervals[0];
-  state.delta = predefDeltas[0];
+  initAppState(&state, hInstance);
 
   int rv = 1;
   WNDCLASSEXW wndClass;
@@ -438,10 +498,16 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
   }
   state.wnd = wnd;
 
-  /* the application always starts up as inactive */
-  if (!createNotificationIcon(wnd, getNotificationIcon(hInstance, 0))) {
+  /* the icon is always created as inactive. if needed, this will be changed
+   * after reading registry values : this is done in order not to unnecessarily
+   * call notification icon related functions with a null icon ID. */
+  if (!createNotificationIcon(wnd, getNotificationIcon(hInstance, false))) {
     goto beach;
   }
+
+  /* reading values from registry might start the timer, which needs a valid
+   * window handle. */
+  stateReadFromRegistry(&state);
 
   MSG msg;
   BOOL getMsgRv;
@@ -464,6 +530,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
    * program should be the wParam of a WM_QUIT message, which is also the value
    * passed to PostQuitMessage(). */
   rv = LOWORD(msg.wParam);
+  stateSaveToRegistry(&state);
 
 beach2:
   removeNotificationIcon(wnd);
