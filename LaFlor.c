@@ -178,25 +178,27 @@ static void moveMouse(struct AppState *state) {
   SendInput(1, &inp, sizeof(inp));
 }
 
-static void commonAppendMenuItem(HMENU menu, bool grayFlag, bool checkedFlag,
+static void commonAppendMenuItem(HMENU menu, int extraFlags,
                                  UINT_PTR menuItemId, const wchar_t *label) {
-  const int flags = MF_STRING | (grayFlag ? MF_GRAYED : 0) |
-                    (checkedFlag ? MF_CHECKED : MF_UNCHECKED);
-  AppendMenuW(menu, flags, menuItemId, label);
+  AppendMenuW(menu, MF_STRING | extraFlags, menuItemId, label);
 }
 
-static HMENU commonCreateMenu(const int *vals, int numVals, int grayFlag,
+static HMENU commonCreateMenu(const int *vals, int numVals, int extraFlags,
                               int currentSelected, int idmStart,
                               void (*formatFn)(wchar_t *, int, int)) {
   HMENU rv = CreatePopupMenu();
   for (int i = 0; i < numVals; ++i) {
     wchar_t buf[256];
     formatFn(buf, ARRAYSIZE(buf), vals[i]);
-    commonAppendMenuItem(rv, grayFlag, currentSelected == i,
-                         (UINT_PTR)idmStart + i, buf);
+    const int checkedFlag = (currentSelected == i) ? MF_CHECKED : MF_UNCHECKED;
+    commonAppendMenuItem(rv, extraFlags | checkedFlag, (UINT_PTR)idmStart + i,
+                         buf);
   }
-  commonAppendMenuItem(rv, grayFlag, currentSelected == -1,
-                       (UINT_PTR)idmStart + numVals, L"Custom...");
+  // TODO : reenable this code once input dialogs are implemented.
+  // const int checkedFlag = (currentSelected == -1) ? MF_CHECKED :
+  // MF_UNCHECKED;
+  commonAppendMenuItem(rv, MF_GRAYED, (UINT_PTR)idmStart + numVals,
+                       L"Custom...");
   return rv;
 }
 
@@ -204,10 +206,10 @@ static void intervalFormat(wchar_t *buf, int bufLen, int value) {
   wnsprintfW(buf, bufLen, L"%d s", value / 1000);
 }
 
-static HMENU createIntervalsMenu(const struct AppState *state, int grayFlag) {
+static HMENU createIntervalsMenu(const struct AppState *state, int extraFlags) {
   int selectedIntervalIdx = seekPredefInterval(state->interval);
-  return commonCreateMenu(predefIntervals, ARRAYSIZE(predefIntervals), grayFlag,
-                          selectedIntervalIdx, IDM_INTERVAL_START,
+  return commonCreateMenu(predefIntervals, ARRAYSIZE(predefIntervals),
+                          extraFlags, selectedIntervalIdx, IDM_INTERVAL_START,
                           intervalFormat);
 }
 
@@ -215,9 +217,9 @@ static void deltaFormat(wchar_t *buf, int bufLen, int value) {
   wnsprintfW(buf, bufLen, L"%d px", value);
 }
 
-static HMENU createDeltasMenu(const struct AppState *state, int grayFlag) {
+static HMENU createDeltasMenu(const struct AppState *state, int extraFlags) {
   int selectedDeltaIdx = seekPredefDelta(state->delta);
-  return commonCreateMenu(predefDeltas, ARRAYSIZE(predefDeltas), grayFlag,
+  return commonCreateMenu(predefDeltas, ARRAYSIZE(predefDeltas), extraFlags,
                           selectedDeltaIdx, IDM_DELTA_START, deltaFormat);
 }
 
