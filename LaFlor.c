@@ -276,7 +276,6 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner, const char *lps
   LPDLGITEMTEMPLATE lpdit;
   LPWORD lpw;
   LPWSTR lpwsz;
-  LRESULT ret;
   int nchar;
 
   unsigned char buf[1024] = {0};
