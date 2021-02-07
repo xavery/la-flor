@@ -195,8 +195,7 @@ static HMENU commonCreateMenu(const int *vals, int numVals, int extraFlags,
                          buf);
   }
   const int checkedFlag = (currentSelected == -1) ? MF_CHECKED : MF_UNCHECKED;
-  commonAppendMenuItem(rv, checkedFlag,
-                       (UINT_PTR)idmStart + numVals,
+  commonAppendMenuItem(rv, checkedFlag, (UINT_PTR)idmStart + numVals,
                        L"Custom...");
   return rv;
 }
@@ -248,7 +247,7 @@ static HMENU createMenu(const struct AppState *state) {
 #define ID_TEXT 200
 
 static BOOL CALLBACK DialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
-                             LPARAM lParam) {
+                                LPARAM lParam) {
   switch (message) {
   case WM_COMMAND:
     switch (LOWORD(wParam)) {
@@ -259,7 +258,7 @@ static BOOL CALLBACK DialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
     }
   }
   return FALSE;
-} 
+}
 
 static LPWORD lpwAlign(LPWORD lpIn) {
   ULONG ul;
@@ -271,7 +270,69 @@ static LPWORD lpwAlign(LPWORD lpIn) {
   return (LPWORD)ul;
 }
 
-static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner, const char *lpszMessage) {
+static void *dwordAlign(void *ptr) {
+  uintptr_t p = (uintptr_t)ptr;
+  p += 3;
+  p >>= 2;
+  p <<= 2;
+  return (void *)p;
+}
+
+static void *memcpy_incr(void *dst, const void *src, size_t len) {
+  memcpy(dst, src, len);
+  return ((char *)dst) + len;
+}
+
+static void *initDLGTEMPLATEEX(unsigned char *buf, DWORD helpID, DWORD exStyle,
+                               DWORD style, WORD cDlgItems, short x, short y,
+                               short cx, short cy, const wchar_t *title) {
+  const WORD dlgVer = 1;
+  const WORD signature = 0xFFFF;
+  buf = memcpy_incr(buf, &dlgVer, sizeof(dlgVer));
+  buf = memcpy_incr(buf, &signature, sizeof(signature));
+  buf = memcpy_incr(buf, &helpID, sizeof(helpID));
+  buf = memcpy_incr(buf, &exStyle, sizeof(exStyle));
+  buf = memcpy_incr(buf, &style, sizeof(style));
+  buf = memcpy_incr(buf, &cDlgItems, sizeof(cDlgItems));
+  buf = memcpy_incr(buf, &x, sizeof(x));
+  buf = memcpy_incr(buf, &y, sizeof(y));
+  buf = memcpy_incr(buf, &cx, sizeof(cx));
+  buf = memcpy_incr(buf, &cy, sizeof(cy));
+  memset(buf, 0, 4); /* no menu, default window class */
+  buf += 4;
+  buf = memcpy_incr(buf, title, wcslen(title) * sizeof(*title));
+  memset(buf, 0, 2);
+  buf += 2;
+  /* we never pass DS_SETFONT or DS_SHELLFONT as the style, so there are no
+   * extra font-related members. */
+  return dwordAlign(buf);
+}
+
+static void *initDLGITEMTEMPLATEEX(unsigned char *buf, DWORD helpID,
+                                   DWORD exStyle, DWORD style, short x, short y,
+                                   short cx, short cy, DWORD id,
+                                   WORD windowClass, const wchar_t *title) {
+  buf = memcpy_incr(buf, &helpID, sizeof(helpID));
+  buf = memcpy_incr(buf, &exStyle, sizeof(exStyle));
+  buf = memcpy_incr(buf, &style, sizeof(style));
+  buf = memcpy_incr(buf, &x, sizeof(x));
+  buf = memcpy_incr(buf, &y, sizeof(y));
+  buf = memcpy_incr(buf, &cx, sizeof(cx));
+  buf = memcpy_incr(buf, &cy, sizeof(cy));
+  buf = memcpy_incr(buf, &id, sizeof(id));
+
+  memset(buf, 0xFF, 2);
+  memcpy(buf + 2, &windowClass, sizeof(windowClass));
+  buf += 4;
+
+  buf = memcpy_incr(buf, title, wcslen(title) * sizeof(*title));
+  memset(buf, 0, 4); /* title terminator + zero size of extra data */
+  buf += 4;
+  return dwordAlign(buf);
+}
+
+static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
+                                const char *lpszMessage) {
   LPDLGTEMPLATE lpdt;
   LPDLGITEMTEMPLATE lpdit;
   LPWORD lpw;
@@ -361,12 +422,14 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner, const char *lps
   lpw = (LPWORD)lpwsz;
   *lpw++ = 0; // No creation data
 
-  return DialogBoxIndirectW(hinst, lpdt, hwndOwner, DialogProc);;
+  return DialogBoxIndirectW(hinst, lpdt, hwndOwner, DialogProc);
+  ;
 }
 
-static int getCustomInterval(struct AppState *state) { 
+static int getCustomInterval(struct AppState *state) {
   DisplayMyMessage(state->app, state->wnd, "foobar");
-  return 2222; }
+  return 2222;
+}
 
 static int getCustomDelta(struct AppState *state) { return 26; }
 
