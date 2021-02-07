@@ -260,16 +260,6 @@ static BOOL CALLBACK DialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
   return FALSE;
 }
 
-static LPWORD lpwAlign(LPWORD lpIn) {
-  ULONG ul;
-
-  ul = (ULONG)lpIn;
-  ul++;
-  ul >>= 1;
-  ul <<= 1;
-  return (LPWORD)ul;
-}
-
 static void *dwordAlign(void *ptr) {
   uintptr_t p = (uintptr_t)ptr;
   p += 3;
@@ -332,102 +322,25 @@ static void *initDLGITEMTEMPLATEEX(unsigned char *buf, DWORD helpID,
 }
 
 static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
-                                const char *lpszMessage) {
-  LPDLGTEMPLATE lpdt;
-  LPDLGITEMTEMPLATE lpdit;
-  LPWORD lpw;
-  LPWSTR lpwsz;
-  int nchar;
-
+                                const wchar_t *label) {
   unsigned char buf[1024] = {0};
-  lpdt = (DLGTEMPLATE *)buf;
 
-  // Define a dialog box.
+  void *dlg = initDLGTEMPLATEEX(
+      buf, 0, 0, WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION,
+      3, 10, 10, 100, 100, L"My Dialog");
+  dlg =
+      initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                            10, 70, 80, 20, IDOK, 0x0080, L"OK");
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                              55, 10, 40, 20, ID_HELP, 0x0080, L"dupa");
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_LEFT, 10,
+                              10, 40, 20, ID_TEXT, 0x0082, label);
 
-  lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION;
-  lpdt->cdit = 3; // Number of controls
-  lpdt->x = 10;
-  lpdt->y = 10;
-  lpdt->cx = 100;
-  lpdt->cy = 100;
-
-  lpw = (LPWORD)(lpdt + 1);
-  *lpw++ = 0; // No menu
-  *lpw++ = 0; // Predefined dialog box class (by default)
-
-  lpwsz = (LPWSTR)lpw;
-  nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "My Dialog", -1, lpwsz, 50);
-  lpw += nchar;
-
-  //-----------------------
-  // Define an OK button.
-  //-----------------------
-  lpw = lpwAlign(lpw); // Align DLGITEMTEMPLATE on DWORD boundary
-  lpdit = (LPDLGITEMTEMPLATE)lpw;
-  lpdit->x = 10;
-  lpdit->y = 70;
-  lpdit->cx = 80;
-  lpdit->cy = 20;
-  lpdit->id = IDOK; // OK button identifier
-  lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON;
-
-  lpw = (LPWORD)(lpdit + 1);
-  *lpw++ = 0xFFFF;
-  *lpw++ = 0x0080; // Button class
-
-  lpwsz = (LPWSTR)lpw;
-  nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "OK", -1, lpwsz, 50);
-  lpw += nchar;
-  *lpw++ = 0; // No creation data
-
-  //-----------------------
-  // Define a Help button.
-  //-----------------------
-  lpw = lpwAlign(lpw); // Align DLGITEMTEMPLATE on DWORD boundary
-  lpdit = (LPDLGITEMTEMPLATE)lpw;
-  lpdit->x = 55;
-  lpdit->y = 10;
-  lpdit->cx = 40;
-  lpdit->cy = 20;
-  lpdit->id = ID_HELP; // Help button identifier
-  lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON;
-
-  lpw = (LPWORD)(lpdit + 1);
-  *lpw++ = 0xFFFF;
-  *lpw++ = 0x0080; // Button class atom
-
-  lpwsz = (LPWSTR)lpw;
-  nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "Help", -1, lpwsz, 50);
-  lpw += nchar;
-  *lpw++ = 0; // No creation data
-
-  //-----------------------
-  // Define a static text control.
-  //-----------------------
-  lpw = lpwAlign(lpw); // Align DLGITEMTEMPLATE on DWORD boundary
-  lpdit = (LPDLGITEMTEMPLATE)lpw;
-  lpdit->x = 10;
-  lpdit->y = 10;
-  lpdit->cx = 40;
-  lpdit->cy = 20;
-  lpdit->id = ID_TEXT; // Text identifier
-  lpdit->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
-
-  lpw = (LPWORD)(lpdit + 1);
-  *lpw++ = 0xFFFF;
-  *lpw++ = 0x0082; // Static class
-
-  for (lpwsz = (LPWSTR)lpw; *lpwsz++ = (WCHAR)*lpszMessage++;)
-    ;
-  lpw = (LPWORD)lpwsz;
-  *lpw++ = 0; // No creation data
-
-  return DialogBoxIndirectW(hinst, lpdt, hwndOwner, DialogProc);
-  ;
+  return DialogBoxIndirectW(hinst, (const DLGTEMPLATE*)buf, hwndOwner, DialogProc);
 }
 
 static int getCustomInterval(struct AppState *state) {
-  DisplayMyMessage(state->app, state->wnd, "foobar");
+  DisplayMyMessage(state->app, state->wnd, L"foobar");
   return 2222;
 }
 
