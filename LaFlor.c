@@ -279,10 +279,8 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner, const char *lps
   LRESULT ret;
   int nchar;
 
-  lpdt = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 1024);
-  if (!lpdt) {
-    return -1;
-  }
+  unsigned char buf[1024] = {0};
+  lpdt = (DLGTEMPLATE *)buf;
 
   // Define a dialog box.
 
@@ -364,9 +362,7 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner, const char *lps
   lpw = (LPWORD)lpwsz;
   *lpw++ = 0; // No creation data
 
-  ret = DialogBoxIndirectW(hinst, lpdt, hwndOwner, DialogProc);
-  HeapFree(GetProcessHeap(), 0, lpdt);
-  return ret;
+  return DialogBoxIndirectW(hinst, lpdt, hwndOwner, DialogProc);;
 }
 
 static int getCustomInterval(struct AppState *state) { 
