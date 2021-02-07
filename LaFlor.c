@@ -194,10 +194,9 @@ static HMENU commonCreateMenu(const int *vals, int numVals, int extraFlags,
     commonAppendMenuItem(rv, extraFlags | checkedFlag, (UINT_PTR)idmStart + i,
                          buf);
   }
-  // TODO : reenable this code once input dialogs are implemented.
-  // const int checkedFlag = (currentSelected == -1) ? MF_CHECKED :
-  // MF_UNCHECKED;
-  commonAppendMenuItem(rv, MF_GRAYED, (UINT_PTR)idmStart + numVals,
+  const int checkedFlag = (currentSelected == -1) ? MF_CHECKED : MF_UNCHECKED;
+  commonAppendMenuItem(rv, checkedFlag,
+                       (UINT_PTR)idmStart + numVals,
                        L"Custom...");
   return rv;
 }
@@ -245,9 +244,136 @@ static HMENU createMenu(const struct AppState *state) {
   return rv;
 }
 
-static int getCustomInterval(void) { return 2222; }
+#define ID_HELP 150
+#define ID_TEXT 200
 
-static int getCustomDelta(void) { return 26; }
+static BOOL CALLBACK DialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
+                             LPARAM lParam) {
+  switch (message) {
+  case WM_COMMAND:
+    switch (LOWORD(wParam)) {
+    case IDOK:
+    case IDCANCEL:
+      EndDialog(hwndDlg, wParam);
+      return TRUE;
+    }
+  }
+  return FALSE;
+} 
+
+static LPWORD lpwAlign(LPWORD lpIn) {
+  ULONG ul;
+
+  ul = (ULONG)lpIn;
+  ul++;
+  ul >>= 1;
+  ul <<= 1;
+  return (LPWORD)ul;
+}
+
+static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner, const char *lpszMessage) {
+  LPDLGTEMPLATE lpdt;
+  LPDLGITEMTEMPLATE lpdit;
+  LPWORD lpw;
+  LPWSTR lpwsz;
+  LRESULT ret;
+  int nchar;
+
+  lpdt = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 1024);
+  if (!lpdt) {
+    return -1;
+  }
+
+  // Define a dialog box.
+
+  lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION;
+  lpdt->cdit = 3; // Number of controls
+  lpdt->x = 10;
+  lpdt->y = 10;
+  lpdt->cx = 100;
+  lpdt->cy = 100;
+
+  lpw = (LPWORD)(lpdt + 1);
+  *lpw++ = 0; // No menu
+  *lpw++ = 0; // Predefined dialog box class (by default)
+
+  lpwsz = (LPWSTR)lpw;
+  nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "My Dialog", -1, lpwsz, 50);
+  lpw += nchar;
+
+  //-----------------------
+  // Define an OK button.
+  //-----------------------
+  lpw = lpwAlign(lpw); // Align DLGITEMTEMPLATE on DWORD boundary
+  lpdit = (LPDLGITEMTEMPLATE)lpw;
+  lpdit->x = 10;
+  lpdit->y = 70;
+  lpdit->cx = 80;
+  lpdit->cy = 20;
+  lpdit->id = IDOK; // OK button identifier
+  lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON;
+
+  lpw = (LPWORD)(lpdit + 1);
+  *lpw++ = 0xFFFF;
+  *lpw++ = 0x0080; // Button class
+
+  lpwsz = (LPWSTR)lpw;
+  nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "OK", -1, lpwsz, 50);
+  lpw += nchar;
+  *lpw++ = 0; // No creation data
+
+  //-----------------------
+  // Define a Help button.
+  //-----------------------
+  lpw = lpwAlign(lpw); // Align DLGITEMTEMPLATE on DWORD boundary
+  lpdit = (LPDLGITEMTEMPLATE)lpw;
+  lpdit->x = 55;
+  lpdit->y = 10;
+  lpdit->cx = 40;
+  lpdit->cy = 20;
+  lpdit->id = ID_HELP; // Help button identifier
+  lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON;
+
+  lpw = (LPWORD)(lpdit + 1);
+  *lpw++ = 0xFFFF;
+  *lpw++ = 0x0080; // Button class atom
+
+  lpwsz = (LPWSTR)lpw;
+  nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "Help", -1, lpwsz, 50);
+  lpw += nchar;
+  *lpw++ = 0; // No creation data
+
+  //-----------------------
+  // Define a static text control.
+  //-----------------------
+  lpw = lpwAlign(lpw); // Align DLGITEMTEMPLATE on DWORD boundary
+  lpdit = (LPDLGITEMTEMPLATE)lpw;
+  lpdit->x = 10;
+  lpdit->y = 10;
+  lpdit->cx = 40;
+  lpdit->cy = 20;
+  lpdit->id = ID_TEXT; // Text identifier
+  lpdit->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+
+  lpw = (LPWORD)(lpdit + 1);
+  *lpw++ = 0xFFFF;
+  *lpw++ = 0x0082; // Static class
+
+  for (lpwsz = (LPWSTR)lpw; *lpwsz++ = (WCHAR)*lpszMessage++;)
+    ;
+  lpw = (LPWORD)lpwsz;
+  *lpw++ = 0; // No creation data
+
+  ret = DialogBoxIndirectW(hinst, lpdt, hwndOwner, DialogProc);
+  HeapFree(GetProcessHeap(), 0, lpdt);
+  return ret;
+}
+
+static int getCustomInterval(struct AppState *state) { 
+  DisplayMyMessage(state->app, state->wnd, "foobar");
+  return 2222; }
+
+static int getCustomDelta(struct AppState *state) { return 26; }
 
 static void toggleEnabled(struct AppState *state) {
   state->active ^= 1;
@@ -279,14 +405,14 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
     setNewInterval(state, predefIntervals[itemId - IDM_INTERVAL_START]);
   } else if (itemId == IDM_INTERVAL_CUSTOM) {
-    int interval = getCustomInterval();
+    int interval = getCustomInterval(state);
     if (interval != -1) {
       setNewInterval(state, interval);
     }
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
     setNewDelta(state, predefDeltas[itemId - IDM_DELTA_START]);
   } else if (itemId == IDM_DELTA_CUSTOM) {
-    int delta = getCustomDelta();
+    int delta = getCustomDelta(state);
     if (delta != -1) {
       setNewDelta(state, delta);
     }
