@@ -337,9 +337,10 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
                                 const wchar_t *label) {
   unsigned char buf[1024] = {0};
 
-  void *dlg = initDLGTEMPLATEEX(
-      buf, 0, 0, WS_POPUP | WS_SYSMENU | WS_CAPTION | DS_MODALFRAME, 3, 10, 10,
-      100, 100, L"My Dialog");
+  void *dlg = initDLGTEMPLATEEX(buf, 0, 0,
+                                WS_POPUP | WS_SYSMENU | WS_CAPTION |
+                                    DS_MODALFRAME | DS_CENTERMOUSE,
+                                3, 10, 10, 100, 100, L"My Dialog");
   dlg =
       initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
                             10, 70, 80, 20, IDOK, 0x0080, L"OK");
