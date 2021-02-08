@@ -337,17 +337,22 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
                                 const wchar_t *label) {
   unsigned char buf[1024] = {0};
 
+  const WORD buttonControl = 0x0080;
+  const WORD editControl = 0x0081;
+  const WORD staticControl = 0x0082;
+
   void *dlg = initDLGTEMPLATEEX(buf, 0, 0,
                                 WS_POPUP | WS_SYSMENU | WS_CAPTION |
                                     DS_MODALFRAME | DS_CENTERMOUSE,
                                 3, 10, 10, 100, 100, L"My Dialog");
   dlg =
       initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                            10, 70, 80, 20, IDOK, 0x0080, L"OK");
-  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                              55, 10, 40, 20, ID_HELP, 0x0080, L"dupa");
+                            10, 70, 80, 20, IDOK, buttonControl, L"OK");
+  dlg =
+      initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                            55, 10, 40, 20, ID_HELP, buttonControl, L"Help");
   dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_LEFT, 10,
-                              10, 40, 20, ID_TEXT, 0x0082, label);
+                              10, 40, 20, ID_TEXT, staticControl, label);
 
   return DialogBoxIndirectW(hinst, (const DLGTEMPLATE *)buf, hwndOwner,
                             DialogProc);
