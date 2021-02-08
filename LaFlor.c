@@ -9,6 +9,8 @@
 #include <shlwapi.h>
 
 #include <assert.h>
+#include <stdbool.h>
+#include <wchar.h>
 
 /* define for the custom message that's sent when some user input is directed at
  * our application's notification icon. since the message identifier namespace
@@ -23,20 +25,36 @@
 #define IDM_ENABLED 1
 #define IDM_QUIT 2
 
-/* the timer ID of the main timer that's created when a timer is associated with
- * the application's main (and only) window handle. */
-#define TIMER_EVENT_ID 1
-
 /* the "interval" and "delta" menu entires are generated dynamically based on
  * the number of entires in respective arrays : therefore, a pair of _START and
  * _END defines is created for each of these instead of a hardcoded set. */
 #define IDM_INTERVAL_START 3
-static const int intervals[] = {1000, 5000, 10000, 30000, 60000};
-#define IDM_INTERVAL_END (IDM_INTERVAL_START + ARRAYSIZE(intervals))
+static const int predefIntervals[] = {1000, 5000, 10000, 30000, 60000};
+#define IDM_INTERVAL_END (IDM_INTERVAL_START + ARRAYSIZE(predefIntervals))
+#define IDM_INTERVAL_CUSTOM IDM_INTERVAL_END
 
-#define IDM_DELTA_START IDM_INTERVAL_END
-static const int deltas[] = {1, 5, 10, 30, 60};
-#define IDM_DELTA_END (IDM_DELTA_START + ARRAYSIZE(deltas))
+#define SEEK_PREDEF_MACRO(arr, val)                                            \
+  for (int i__ = 0; i__ < ARRAYSIZE(arr); ++i__) {                             \
+    if (arr[i__] == val) {                                                     \
+      return i__;                                                              \
+    }                                                                          \
+  }                                                                            \
+  return -1
+
+static int seekPredefInterval(int val) {
+  SEEK_PREDEF_MACRO(predefIntervals, val);
+}
+
+#define IDM_DELTA_START (IDM_INTERVAL_CUSTOM + 1)
+static const int predefDeltas[] = {1, 5, 10, 30, 60};
+#define IDM_DELTA_END (IDM_DELTA_START + ARRAYSIZE(predefDeltas))
+#define IDM_DELTA_CUSTOM IDM_DELTA_END
+
+static int seekPredefDelta(int val) { SEEK_PREDEF_MACRO(predefDeltas, val); }
+
+/* the timer ID of the main timer that's created when a timer is associated with
+ * the application's main (and only) window handle. */
+#define TIMER_EVENT_ID 1
 
 /* the main application state struct that's associated with the given window
  * handle. */
@@ -44,14 +62,15 @@ struct AppState {
   HINSTANCE app;
   HWND wnd;
   UINT_PTR timerId;
-  int active;
-  int intervalIdx;
-  int deltaIdx;
+  int interval;
+  int delta;
   int currentDeltaX;
   int currentDeltaY;
+  bool active;
+  bool inputDialogActive;
 };
 
-static HICON getNotificationIcon(HINSTANCE app, int active) {
+static HICON getNotificationIcon(HINSTANCE app, bool active) {
   return LoadIconW(app, active ? L"IDI_ICON1" : L"IDI_ICON1_BW");
 }
 
@@ -76,7 +95,7 @@ static void notifyIconDataCommonInit(NOTIFYICONDATAW *out, HWND wnd) {
   out->uID = NOTIFYICON_ID;
 }
 
-static void changeNotificationIcon(HINSTANCE app, HWND wnd, int active) {
+static void changeNotificationIcon(HINSTANCE app, HWND wnd, bool active) {
   NOTIFYICONDATAW data;
   notifyIconDataCommonInit(&data, wnd);
   data.uFlags |= NIF_ICON; /* the only thing we want to change is the icon and
@@ -87,7 +106,7 @@ static void changeNotificationIcon(HINSTANCE app, HWND wnd, int active) {
 
 static void getNewDelta(struct AppState *state, int newval, int maxval,
                         int *delta) {
-  const int wantedDelta = deltas[state->deltaIdx];
+  const int wantedDelta = state->delta;
   if (newval >= maxval) {
     *delta = (-1 * wantedDelta);
   } else if (newval <= 0) {
@@ -108,9 +127,8 @@ static void getNewDeltas(struct AppState *state) {
   getNewDelta(state, newy, height, &state->currentDeltaY);
 }
 
-static void setNewDelta(struct AppState *state, int idx) {
-  state->deltaIdx = idx;
-  const int wantedDelta = deltas[idx];
+static void setNewDelta(struct AppState *state, int wantedDelta) {
+  state->delta = wantedDelta;
   if (state->currentDeltaX < 0) {
     state->currentDeltaX = state->currentDeltaY = (-1 * wantedDelta);
   } else {
@@ -119,17 +137,16 @@ static void setNewDelta(struct AppState *state, int idx) {
   getNewDeltas(state);
 }
 
-static void setTimerEnabled(struct AppState *state, int enabled) {
+static void setTimerEnabled(struct AppState *state, bool enabled) {
   /* enable or disable the timer, according to the value of the "enabled"
    * parameter. TimerProc is not used here, which means that the timer ticks
    * will be sent to the main message loop as WM_TIMER messages and reach the
    * window function, where the state struct pointer can be accessed via the
    * associated window handle. */
-  setNewDelta(state, state->deltaIdx);
+  setNewDelta(state, state->delta);
   if (enabled) {
     assert(state->timerId == 0);
-    state->timerId =
-        SetTimer(state->wnd, TIMER_EVENT_ID, intervals[state->intervalIdx], 0);
+    state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID, state->interval, 0);
   } else {
     assert(state->timerId);
     KillTimer(state->wnd, TIMER_EVENT_ID);
@@ -139,12 +156,11 @@ static void setTimerEnabled(struct AppState *state, int enabled) {
 
 static void restartTimer(struct AppState *state) {
   assert(state->timerId);
-  state->timerId =
-      SetTimer(state->wnd, TIMER_EVENT_ID, intervals[state->intervalIdx], 0);
+  state->timerId = SetTimer(state->wnd, TIMER_EVENT_ID, state->interval, 0);
 }
 
-static void setNewInterval(struct AppState *state, int idx) {
-  state->intervalIdx = idx;
+static void setNewInterval(struct AppState *state, int interval) {
+  state->interval = interval;
   if (state->timerId) {
     restartTimer(state);
   }
@@ -164,17 +180,25 @@ static void moveMouse(struct AppState *state) {
   SendInput(1, &inp, sizeof(inp));
 }
 
-static HMENU commonCreateMenu(const int *vals, int numVals, int grayFlag,
+static void commonAppendMenuItem(HMENU menu, int extraFlags,
+                                 UINT_PTR menuItemId, const wchar_t *label) {
+  AppendMenuW(menu, MF_STRING | extraFlags, menuItemId, label);
+}
+
+static HMENU commonCreateMenu(const int *vals, int numVals, int extraFlags,
                               int currentSelected, int idmStart,
                               void (*formatFn)(wchar_t *, int, int)) {
   HMENU rv = CreatePopupMenu();
   for (int i = 0; i < numVals; ++i) {
     wchar_t buf[256];
-    int flags = MF_STRING | grayFlag |
-                (currentSelected == i ? MF_CHECKED : MF_UNCHECKED);
     formatFn(buf, ARRAYSIZE(buf), vals[i]);
-    AppendMenuW(rv, flags, (UINT_PTR)idmStart + i, buf);
+    const int checkedFlag = (currentSelected == i) ? MF_CHECKED : MF_UNCHECKED;
+    commonAppendMenuItem(rv, extraFlags | checkedFlag, (UINT_PTR)idmStart + i,
+                         buf);
   }
+  const int checkedFlag = (currentSelected == -1) ? MF_CHECKED : MF_UNCHECKED;
+  commonAppendMenuItem(rv, checkedFlag, (UINT_PTR)idmStart + numVals,
+                       L"Custom...");
   return rv;
 }
 
@@ -182,9 +206,10 @@ static void intervalFormat(wchar_t *buf, int bufLen, int value) {
   wnsprintfW(buf, bufLen, L"%d s", value / 1000);
 }
 
-static HMENU createIntervalsMenu(const struct AppState *state, int grayFlag) {
-  return commonCreateMenu(intervals, ARRAYSIZE(intervals), grayFlag,
-                          state->intervalIdx, IDM_INTERVAL_START,
+static HMENU createIntervalsMenu(const struct AppState *state, int extraFlags) {
+  int selectedIntervalIdx = seekPredefInterval(state->interval);
+  return commonCreateMenu(predefIntervals, ARRAYSIZE(predefIntervals),
+                          extraFlags, selectedIntervalIdx, IDM_INTERVAL_START,
                           intervalFormat);
 }
 
@@ -192,9 +217,10 @@ static void deltaFormat(wchar_t *buf, int bufLen, int value) {
   wnsprintfW(buf, bufLen, L"%d px", value);
 }
 
-static HMENU createDeltasMenu(const struct AppState *state, int grayFlag) {
-  return commonCreateMenu(deltas, ARRAYSIZE(deltas), grayFlag, state->deltaIdx,
-                          IDM_DELTA_START, deltaFormat);
+static HMENU createDeltasMenu(const struct AppState *state, int extraFlags) {
+  int selectedDeltaIdx = seekPredefDelta(state->delta);
+  return commonCreateMenu(predefDeltas, ARRAYSIZE(predefDeltas), extraFlags,
+                          selectedDeltaIdx, IDM_DELTA_START, deltaFormat);
 }
 
 static HMENU createMenu(const struct AppState *state) {
@@ -217,6 +243,154 @@ static HMENU createMenu(const struct AppState *state) {
   AppendMenuW(rv, MF_SEPARATOR, 0, 0);
   AppendMenuW(rv, MF_STRING, IDM_QUIT, L"Quit");
   return rv;
+}
+
+#define ID_EDIT 200
+
+static BOOL CALLBACK inputDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
+                                     LPARAM lParam) {
+  switch (message) {
+  case WM_COMMAND:
+    switch (LOWORD(wParam)) {
+    case IDOK: {
+      wchar_t valBuf[32];
+      GetDlgItemTextW(hwndDlg, ID_EDIT, valBuf, ARRAYSIZE(valBuf));
+      int value;
+      if (swscanf(valBuf, L"%d", &value) == 1 && value > 0) {
+        EndDialog(hwndDlg, value);
+      } else {
+        EndDialog(hwndDlg, -1);
+      }
+      return TRUE;
+    }
+    case IDCANCEL:
+      EndDialog(hwndDlg, -1);
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+static void *dwordAlign(void *ptr) {
+  uintptr_t p = (uintptr_t)ptr;
+  p += 3;
+  p >>= 2;
+  p <<= 2;
+  return (void *)p;
+}
+
+static void *memcpy_incr(void *dst, const void *src, size_t len) {
+  memcpy(dst, src, len);
+  return ((char *)dst) + len;
+}
+
+static void *initDLGTEMPLATEEX(unsigned char *buf, DWORD helpID, DWORD exStyle,
+                               DWORD style, WORD cDlgItems, short x, short y,
+                               short cx, short cy, const wchar_t *title) {
+  const WORD dlgVer = 1;
+  const WORD signature = 0xFFFF;
+  style |= (DS_SETFONT | DS_SHELLFONT);
+  buf = memcpy_incr(buf, &dlgVer, sizeof(dlgVer));
+  buf = memcpy_incr(buf, &signature, sizeof(signature));
+  buf = memcpy_incr(buf, &helpID, sizeof(helpID));
+  buf = memcpy_incr(buf, &exStyle, sizeof(exStyle));
+  buf = memcpy_incr(buf, &style, sizeof(style));
+  buf = memcpy_incr(buf, &cDlgItems, sizeof(cDlgItems));
+  buf = memcpy_incr(buf, &x, sizeof(x));
+  buf = memcpy_incr(buf, &y, sizeof(y));
+  buf = memcpy_incr(buf, &cx, sizeof(cx));
+  buf = memcpy_incr(buf, &cy, sizeof(cy));
+  memset(buf, 0, 4); /* no menu, default window class */
+  buf += 4;
+  buf = memcpy_incr(buf, title, (wcslen(title) + 1) * sizeof(*title));
+
+  /* the values here are based on the default values when creating dialogs via
+   * MSVC's resource editor. not using DS_SETFONT and DS_SHELLFONT and not
+   * appending font data to the dialog template results in an ugly Fixedsys-like
+   * font being used, which makes it look like Windows 3.1. */
+  const WORD pointsize = 8;
+  const WORD weight = FW_NORMAL;
+  const BYTE italic = 0;
+  const BYTE charset = DEFAULT_CHARSET;
+  const wchar_t typeface[] = L"MS Shell Dlg";
+  buf = memcpy_incr(buf, &pointsize, sizeof(pointsize));
+  buf = memcpy_incr(buf, &weight, sizeof(weight));
+  buf = memcpy_incr(buf, &italic, sizeof(italic));
+  buf = memcpy_incr(buf, &charset, sizeof(charset));
+  buf = memcpy_incr(buf, typeface, sizeof(typeface));
+  return dwordAlign(buf);
+}
+
+static void *initDLGITEMTEMPLATEEX(unsigned char *buf, DWORD helpID,
+                                   DWORD exStyle, DWORD style, short x, short y,
+                                   short cx, short cy, DWORD id,
+                                   WORD windowClass, const wchar_t *text) {
+  buf = memcpy_incr(buf, &helpID, sizeof(helpID));
+  buf = memcpy_incr(buf, &exStyle, sizeof(exStyle));
+  buf = memcpy_incr(buf, &style, sizeof(style));
+  buf = memcpy_incr(buf, &x, sizeof(x));
+  buf = memcpy_incr(buf, &y, sizeof(y));
+  buf = memcpy_incr(buf, &cx, sizeof(cx));
+  buf = memcpy_incr(buf, &cy, sizeof(cy));
+  buf = memcpy_incr(buf, &id, sizeof(id));
+
+  memset(buf, 0xFF, 2);
+  memcpy(buf + 2, &windowClass, sizeof(windowClass));
+  buf += 4;
+
+  buf = memcpy_incr(buf, text, (wcslen(text) + 1) * sizeof(*text));
+  memset(buf, 0, 2); /* zero size of extra data */
+  buf += 2;
+  return dwordAlign(buf);
+}
+
+static LRESULT displayInputDialog(struct AppState *state, const wchar_t *title,
+                                  const wchar_t *label, const wchar_t *units,
+                                  int initialValue) {
+  unsigned char buf[8192] = {0};
+
+  const WORD buttonControl = 0x0080;
+  const WORD editControl = 0x0081;
+  const WORD staticControl = 0x0082;
+
+  void *dlg = initDLGTEMPLATEEX(buf, 0, 0,
+                                WS_POPUP | WS_SYSMENU | WS_CAPTION |
+                                    DS_MODALFRAME | DS_CENTERMOUSE,
+                                5, 10, 10, 100, 80, title);
+
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_CENTER, 10,
+                              10, 80, 10, 0xdeadbeef, staticControl, label);
+
+  wchar_t initialValStr[16];
+  swprintf(initialValStr, ARRAYSIZE(initialValStr), L"%d", initialValue);
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | ES_NUMBER, 10,
+                              30, 60, 10, ID_EDIT, editControl, initialValStr);
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_LEFT, 75,
+                              30, 10, 10, 0xdeadc0de, staticControl, units);
+  dlg =
+      initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                            10, 50, 20, 20, IDOK, buttonControl, L"OK");
+  dlg =
+      initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                            50, 50, 30, 20, IDCANCEL, buttonControl, L"Cancel");
+
+  state->inputDialogActive = true;
+  LRESULT rv = DialogBoxIndirectW(state->app, (const DLGTEMPLATE *)buf,
+                                  state->wnd, inputDialogProc);
+  state->inputDialogActive = false;
+  return rv;
+}
+
+static int getCustomInterval(struct AppState *state) {
+  int interval_sec = displayInputDialog(state, L"Custom interval",
+                                        L"Please enter the new interval", L"s",
+                                        state->interval / 1000);
+  return interval_sec * 1000;
+}
+
+static int getCustomDelta(struct AppState *state) {
+  return displayInputDialog(state, L"Custom delta",
+                            L"Please enter the new delta", L"px", state->delta);
 }
 
 static void toggleEnabled(struct AppState *state) {
@@ -247,15 +421,28 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
   } else if (itemId == IDM_ENABLED) {
     toggleEnabled(state);
   } else if (itemId >= IDM_INTERVAL_START && itemId < IDM_INTERVAL_END) {
-    setNewInterval(state, (itemId - IDM_INTERVAL_START));
+    setNewInterval(state, predefIntervals[itemId - IDM_INTERVAL_START]);
+  } else if (itemId == IDM_INTERVAL_CUSTOM) {
+    int interval = getCustomInterval(state);
+    if (interval != -1) {
+      setNewInterval(state, interval);
+    }
   } else if (itemId >= IDM_DELTA_START && itemId < IDM_DELTA_END) {
-    setNewDelta(state, (itemId - IDM_DELTA_START));
+    setNewDelta(state, predefDeltas[itemId - IDM_DELTA_START]);
+  } else if (itemId == IDM_DELTA_CUSTOM) {
+    int delta = getCustomDelta(state);
+    if (delta != -1) {
+      setNewDelta(state, delta);
+    }
   }
 }
 
 static LRESULT onTaskbarIconEvent(struct AppState *state, HWND wnd, UINT msg) {
   switch (msg) {
   case WM_RBUTTONUP: {
+    if (state->inputDialogActive) {
+      break;
+    }
     /* the version of Shell_NotifyIcon that we use does not support passing any
      * extra information about the location of the related event, so we need to
      * call GetCursorPos() ourselves. see further comments about this. */
@@ -365,11 +552,73 @@ static int removeNotificationIcon(HWND wnd) {
   return Shell_NotifyIconW(NIM_DELETE, &notifyIconData) == TRUE;
 }
 
+static const wchar_t LaFlorRegistryKey[] = L"SOFTWARE\\xavery\\LaFlor";
+
+static int registryReadInteger(HKEY key, const wchar_t *subkey, int *rv) {
+  unsigned int type;
+  unsigned char buf[sizeof(int)];
+  unsigned int bufsize = sizeof(buf);
+
+  const LSTATUS stat = RegQueryValueExW(key, subkey, 0, &type, buf, &bufsize);
+  if (stat == ERROR_SUCCESS && type == REG_DWORD) {
+    memcpy(rv, buf, sizeof(*rv));
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+static void stateReadFromRegistry(struct AppState *state) {
+  HKEY key;
+  const LSTATUS ok =
+      RegOpenKeyExW(HKEY_CURRENT_USER, LaFlorRegistryKey, 0, KEY_READ, &key);
+  if (ok != ERROR_SUCCESS) {
+    return;
+  }
+
+  int value;
+  if (registryReadInteger(key, L"delta", &value) == 0) {
+    setNewDelta(state, value);
+  }
+  if (registryReadInteger(key, L"interval", &value) == 0) {
+    setNewInterval(state, value);
+  }
+  if (registryReadInteger(key, L"active", &value) == 0 && value) {
+    toggleEnabled(state);
+  }
+
+  RegCloseKey(key);
+}
+
+static void stateSaveToRegistry(const struct AppState *state) {
+  HKEY key;
+  const LSTATUS ok = RegCreateKeyExW(HKEY_CURRENT_USER, LaFlorRegistryKey, 0, 0,
+                                     0, KEY_WRITE, 0, &key, 0);
+  if (ok != ERROR_SUCCESS) {
+    return;
+  }
+
+  RegSetValueExW(key, L"delta", 0, REG_DWORD, (const BYTE *)&state->delta,
+                 sizeof(state->delta));
+  RegSetValueExW(key, L"interval", 0, REG_DWORD, (const BYTE *)&state->interval,
+                 sizeof(state->interval));
+  int value = state->active;
+  RegSetValueExW(key, L"active", 0, REG_DWORD, (const BYTE *)&value,
+                 sizeof(value));
+  RegCloseKey(key);
+}
+
+static void initAppState(struct AppState *state, HINSTANCE hInstance) {
+  memset(state, 0, sizeof(*state));
+  state->app = hInstance;
+  state->interval = predefIntervals[0];
+  state->delta = predefDeltas[0];
+}
+
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
                     _In_ PWSTR pCmdLine, _In_ int nCmdShow) {
   struct AppState state;
-  memset(&state, 0, sizeof(state));
-  state.app = hInstance;
+  initAppState(&state, hInstance);
 
   int rv = 1;
   WNDCLASSEXW wndClass;
@@ -396,10 +645,16 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
   }
   state.wnd = wnd;
 
-  /* the application always starts up as inactive */
-  if (!createNotificationIcon(wnd, getNotificationIcon(hInstance, 0))) {
+  /* the icon is always created as inactive. if needed, this will be changed
+   * after reading registry values : this is done in order not to unnecessarily
+   * call notification icon related functions with a null icon ID. */
+  if (!createNotificationIcon(wnd, getNotificationIcon(hInstance, false))) {
     goto beach;
   }
+
+  /* reading values from registry might start the timer, which needs a valid
+   * window handle. */
+  stateReadFromRegistry(&state);
 
   MSG msg;
   BOOL getMsgRv;
@@ -409,7 +664,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
    *
    * while (GetMessage( lpMsg, hWnd, 0, 0))
    *
-   * is slightly wrong.*/
+   * is slightly wrong though has no real consequences as it works out to the
+   * exact same thing. */
   while ((getMsgRv = GetMessageW(&msg, 0, 0, 0)) != 0) {
     if (getMsgRv == -1) {
       goto beach2;
@@ -421,6 +677,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
    * program should be the wParam of a WM_QUIT message, which is also the value
    * passed to PostQuitMessage(). */
   rv = LOWORD(msg.wParam);
+  stateSaveToRegistry(&state);
 
 beach2:
   removeNotificationIcon(wnd);
