@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <stdbool.h>
+#include <wchar.h>
 
 /* define for the custom message that's sent when some user input is directed at
  * our application's notification icon. since the message identifier namespace
@@ -243,17 +244,26 @@ static HMENU createMenu(const struct AppState *state) {
   return rv;
 }
 
-#define ID_HELP 150
-#define ID_TEXT 200
+#define ID_EDIT 200
 
 static BOOL CALLBACK DialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
                                 LPARAM lParam) {
   switch (message) {
   case WM_COMMAND:
     switch (LOWORD(wParam)) {
-    case IDOK:
+    case IDOK: {
+      wchar_t valBuf[32];
+      GetDlgItemTextW(hwndDlg, ID_EDIT, valBuf, ARRAYSIZE(valBuf));
+      int value;
+      if (swscanf(valBuf, L"%d", &value) == 1 && value > 0) {
+        EndDialog(hwndDlg, value);
+      } else {
+        EndDialog(hwndDlg, -1);
+      }
+      return TRUE;
+    }
     case IDCANCEL:
-      EndDialog(hwndDlg, wParam);
+      EndDialog(hwndDlg, -1);
       return TRUE;
     }
   }
@@ -313,7 +323,7 @@ static void *initDLGTEMPLATEEX(unsigned char *buf, DWORD helpID, DWORD exStyle,
 static void *initDLGITEMTEMPLATEEX(unsigned char *buf, DWORD helpID,
                                    DWORD exStyle, DWORD style, short x, short y,
                                    short cx, short cy, DWORD id,
-                                   WORD windowClass, const wchar_t *title) {
+                                   WORD windowClass, const wchar_t *text) {
   buf = memcpy_incr(buf, &helpID, sizeof(helpID));
   buf = memcpy_incr(buf, &exStyle, sizeof(exStyle));
   buf = memcpy_incr(buf, &style, sizeof(style));
@@ -327,15 +337,16 @@ static void *initDLGITEMTEMPLATEEX(unsigned char *buf, DWORD helpID,
   memcpy(buf + 2, &windowClass, sizeof(windowClass));
   buf += 4;
 
-  buf = memcpy_incr(buf, title, wcslen(title) * sizeof(*title));
-  memset(buf, 0, 4); /* title terminator + zero size of extra data */
-  buf += 4;
+  buf = memcpy_incr(buf, text, (wcslen(text) + 1) * sizeof(*text));
+  memset(buf, 0, 2); /* zero size of extra data */
+  buf += 2;
   return dwordAlign(buf);
 }
 
-static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
-                                const wchar_t *label) {
-  unsigned char buf[1024] = {0};
+static LRESULT displayInputDialog(HINSTANCE hinst, HWND hwndOwner,
+                                  const wchar_t *title, const wchar_t *label,
+                                  const wchar_t *units, int initialValue) {
+  unsigned char buf[8192] = {0};
 
   const WORD buttonControl = 0x0080;
   const WORD editControl = 0x0081;
@@ -344,26 +355,39 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
   void *dlg = initDLGTEMPLATEEX(buf, 0, 0,
                                 WS_POPUP | WS_SYSMENU | WS_CAPTION |
                                     DS_MODALFRAME | DS_CENTERMOUSE,
-                                3, 10, 10, 100, 100, L"My Dialog");
+                                5, 10, 10, 100, 80, title);
+
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_CENTER, 10,
+                              10, 80, 10, 0xdeadbeef, staticControl, label);
+
+  wchar_t initialValStr[16];
+  swprintf(initialValStr, ARRAYSIZE(initialValStr), L"%d", initialValue);
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | ES_NUMBER, 10,
+                              30, 60, 10, ID_EDIT, editControl, initialValStr);
+  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_LEFT, 75,
+                              30, 10, 10, 0xdeadc0de, staticControl, units);
   dlg =
       initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                            10, 70, 80, 20, IDOK, buttonControl, L"OK");
+                            10, 50, 20, 20, IDOK, buttonControl, L"OK");
   dlg =
       initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                            55, 10, 40, 20, ID_HELP, buttonControl, L"Help");
-  dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_LEFT, 10,
-                              10, 40, 20, ID_TEXT, staticControl, label);
+                            50, 50, 30, 20, IDCANCEL, buttonControl, L"Cancel");
 
   return DialogBoxIndirectW(hinst, (const DLGTEMPLATE *)buf, hwndOwner,
                             DialogProc);
 }
 
 static int getCustomInterval(struct AppState *state) {
-  DisplayMyMessage(state->app, state->wnd, L"foobar");
-  return 2222;
+  int interval_sec = displayInputDialog(
+      state->app, state->wnd, L"Custom interval",
+      L"Please enter the new interval", L"s", state->interval / 1000);
+  return interval_sec * 1000;
 }
 
-static int getCustomDelta(struct AppState *state) { return 26; }
+static int getCustomDelta(struct AppState *state) {
+  return displayInputDialog(state->app, state->wnd, L"Custom delta",
+                            L"Please enter the new delta", L"px", state->delta);
+}
 
 static void toggleEnabled(struct AppState *state) {
   state->active ^= 1;
