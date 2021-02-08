@@ -67,6 +67,7 @@ struct AppState {
   int currentDeltaX;
   int currentDeltaY;
   bool active;
+  bool inputDialogActive;
 };
 
 static HICON getNotificationIcon(HINSTANCE app, bool active) {
@@ -343,9 +344,9 @@ static void *initDLGITEMTEMPLATEEX(unsigned char *buf, DWORD helpID,
   return dwordAlign(buf);
 }
 
-static LRESULT displayInputDialog(HINSTANCE hinst, HWND hwndOwner,
-                                  const wchar_t *title, const wchar_t *label,
-                                  const wchar_t *units, int initialValue) {
+static LRESULT displayInputDialog(struct AppState *state, const wchar_t *title,
+                                  const wchar_t *label, const wchar_t *units,
+                                  int initialValue) {
   unsigned char buf[8192] = {0};
 
   const WORD buttonControl = 0x0080;
@@ -373,19 +374,22 @@ static LRESULT displayInputDialog(HINSTANCE hinst, HWND hwndOwner,
       initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                             50, 50, 30, 20, IDCANCEL, buttonControl, L"Cancel");
 
-  return DialogBoxIndirectW(hinst, (const DLGTEMPLATE *)buf, hwndOwner,
-                            inputDialogProc);
+  state->inputDialogActive = true;
+  LRESULT rv = DialogBoxIndirectW(state->app, (const DLGTEMPLATE *)buf,
+                                  state->wnd, inputDialogProc);
+  state->inputDialogActive = false;
+  return rv;
 }
 
 static int getCustomInterval(struct AppState *state) {
-  int interval_sec = displayInputDialog(
-      state->app, state->wnd, L"Custom interval",
-      L"Please enter the new interval", L"s", state->interval / 1000);
+  int interval_sec = displayInputDialog(state, L"Custom interval",
+                                        L"Please enter the new interval", L"s",
+                                        state->interval / 1000);
   return interval_sec * 1000;
 }
 
 static int getCustomDelta(struct AppState *state) {
-  return displayInputDialog(state->app, state->wnd, L"Custom delta",
+  return displayInputDialog(state, L"Custom delta",
                             L"Please enter the new delta", L"px", state->delta);
 }
 
@@ -436,6 +440,9 @@ static void onMenuItemClicked(int itemId, struct AppState *state, HWND wnd) {
 static LRESULT onTaskbarIconEvent(struct AppState *state, HWND wnd, UINT msg) {
   switch (msg) {
   case WM_RBUTTONUP: {
+    if (state->inputDialogActive) {
+      break;
+    }
     /* the version of Shell_NotifyIcon that we use does not support passing any
      * extra information about the location of the related event, so we need to
      * call GetCursorPos() ourselves. see further comments about this. */
