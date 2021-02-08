@@ -278,6 +278,7 @@ static void *initDLGTEMPLATEEX(unsigned char *buf, DWORD helpID, DWORD exStyle,
                                short cx, short cy, const wchar_t *title) {
   const WORD dlgVer = 1;
   const WORD signature = 0xFFFF;
+  style |= (DS_SETFONT | DS_SHELLFONT);
   buf = memcpy_incr(buf, &dlgVer, sizeof(dlgVer));
   buf = memcpy_incr(buf, &signature, sizeof(signature));
   buf = memcpy_incr(buf, &helpID, sizeof(helpID));
@@ -290,11 +291,22 @@ static void *initDLGTEMPLATEEX(unsigned char *buf, DWORD helpID, DWORD exStyle,
   buf = memcpy_incr(buf, &cy, sizeof(cy));
   memset(buf, 0, 4); /* no menu, default window class */
   buf += 4;
-  buf = memcpy_incr(buf, title, wcslen(title) * sizeof(*title));
-  memset(buf, 0, 2);
-  buf += 2;
-  /* we never pass DS_SETFONT or DS_SHELLFONT as the style, so there are no
-   * extra font-related members. */
+  buf = memcpy_incr(buf, title, (wcslen(title) + 1) * sizeof(*title));
+
+  /* the values here are based on the default values when creating dialogs via
+   * MSVC's resource editor. not using DS_SETFONT and DS_SHELLFONT and not
+   * appending font data to the dialog template results in an ugly Fixedsys-like
+   * font being used, which makes it look like Windows 3.1. */
+  const WORD pointsize = 8;
+  const WORD weight = FW_NORMAL;
+  const BYTE italic = 0;
+  const BYTE charset = DEFAULT_CHARSET;
+  const wchar_t typeface[] = L"MS Shell Dlg";
+  buf = memcpy_incr(buf, &pointsize, sizeof(pointsize));
+  buf = memcpy_incr(buf, &weight, sizeof(weight));
+  buf = memcpy_incr(buf, &italic, sizeof(italic));
+  buf = memcpy_incr(buf, &charset, sizeof(charset));
+  buf = memcpy_incr(buf, typeface, sizeof(typeface));
   return dwordAlign(buf);
 }
 
@@ -326,8 +338,8 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
   unsigned char buf[1024] = {0};
 
   void *dlg = initDLGTEMPLATEEX(
-      buf, 0, 0, WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION,
-      3, 10, 10, 100, 100, L"My Dialog");
+      buf, 0, 0, WS_POPUP | WS_SYSMENU | WS_CAPTION | DS_MODALFRAME, 3, 10, 10,
+      100, 100, L"My Dialog");
   dlg =
       initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
                             10, 70, 80, 20, IDOK, 0x0080, L"OK");
@@ -336,7 +348,8 @@ static LRESULT DisplayMyMessage(HINSTANCE hinst, HWND hwndOwner,
   dlg = initDLGITEMTEMPLATEEX(dlg, 0, 0, WS_CHILD | WS_VISIBLE | SS_LEFT, 10,
                               10, 40, 20, ID_TEXT, 0x0082, label);
 
-  return DialogBoxIndirectW(hinst, (const DLGTEMPLATE*)buf, hwndOwner, DialogProc);
+  return DialogBoxIndirectW(hinst, (const DLGTEMPLATE *)buf, hwndOwner,
+                            DialogProc);
 }
 
 static int getCustomInterval(struct AppState *state) {
