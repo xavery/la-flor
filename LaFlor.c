@@ -246,8 +246,8 @@ static HMENU createMenu(const struct AppState *state) {
 
 #define ID_EDIT 200
 
-static BOOL CALLBACK DialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
-                                LPARAM lParam) {
+static BOOL CALLBACK inputDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
+                                     LPARAM lParam) {
   switch (message) {
   case WM_COMMAND:
     switch (LOWORD(wParam)) {
@@ -374,7 +374,7 @@ static LRESULT displayInputDialog(HINSTANCE hinst, HWND hwndOwner,
                             50, 50, 30, 20, IDCANCEL, buttonControl, L"Cancel");
 
   return DialogBoxIndirectW(hinst, (const DLGTEMPLATE *)buf, hwndOwner,
-                            DialogProc);
+                            inputDialogProc);
 }
 
 static int getCustomInterval(struct AppState *state) {
